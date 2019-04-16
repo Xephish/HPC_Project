@@ -121,7 +121,7 @@ int readImage(ImagenData img, FILE **fp, int dim, int halosize, long *position){
         perror("Error: ");
     haloposition = dim-(img->ancho*halosize*2);
 
-    #pragma omp parallel for schedule(guided, 4) private(i) 
+    //#pragma omp parallel for schedule(guided, 4) private(i) 
     for(i=0;i<dim;i++) {
         // When start reading the halo store the position in the image file
         if (halosize != 0 && i == haloposition) *position=ftell(*fp);
@@ -191,7 +191,7 @@ int initfilestore(ImagenData img, FILE **fp, char* nombre, long *position){
 int savingChunk(ImagenData img, FILE **fp, int dim, int offset){
     int i,k=0;
     //Writing image partition
-    #pragma omp parallel for schedule(guided, 4) private(i)
+    //#pragma omp parallel for schedule(guided, 4) private(i)
     for(i=offset;i<dim+offset;i++){
         fprintf(*fp,"%d %d %d ",img->R[i],img->G[i],img->B[i]);
 //        if ((i+1)%6==0) fprintf(*fp,"\n");
@@ -224,6 +224,8 @@ void freeImagestructure(ImagenData *src){
 //
 // signed integer (32bit) version:
 ///////////////////////////////////////////////////////////////////////////////
+
+//#pragma omp parallel for schedule(runtime) private(i, j, m, n, inPtr, inPtr2, outPtr) reduction(+:sum) 
 int convolve2D(int* in, int* out, int dataSizeX, int dataSizeY,
                float* kernel, int kernelSizeX, int kernelSizeY)
 {
@@ -247,10 +249,23 @@ int convolve2D(int* in, int* out, int dataSizeX, int dataSizeY,
     inPtr = inPtr2 = &in[dataSizeX * kCenterY + kCenterX];  // note that  it is shifted (kCenterX, kCenterY),
     outPtr = out;
     kPtr = kernel;
+
+
+    float chunck =  dataSizeY / omp_get_max_threads(); 
     
-    #pragma omp parallel for schedule(runtime) private(i, j, m, n) reduction(+:sum) 
+    //#pragma omp parallel for schedule(guided) private(i, j, m, n) //reduction(+:sum) 
     // start convolution
-    for(i= 0; i < dataSizeY; ++i)                   // number of rows
+
+    #pragma omp parallel
+    {
+    int idThread = omp_get_thread_num();
+
+    int limit = (idThread + 1 * chunck) -1; 
+
+    #pragma omp parallel for schedule(guided) private(i, j, m, n) reduction(+:sum) 
+    for(i= idThread * chunck; i < limit; ++i) 
+
+    //for(i= 0; i < dataSizeY; ++i)                   // number of rows
     {
         // compute the range of convolution, the current row of kernel should be between these
         rowMax = i + kCenterY;
@@ -298,6 +313,7 @@ int convolve2D(int* in, int* out, int dataSizeX, int dataSizeY,
             inPtr = ++inPtr2;                       // next input
             ++outPtr;                               // next output
         }
+    }
     }
     
     return 0;
@@ -393,7 +409,7 @@ int main(int argc, char **argv)
     int c=0, offset=0;
     imagesize = source->altura*source->ancho;
     partsize  = (source->altura*source->ancho)/partitions;
-//    printf("%s ocupa %dx%d=%d pixels. Partitions=%d, halo=%d, partsize=%d pixels\n", argv[1], source->altura, source->ancho, imagesize, partitions, halo, partsize);
+    printf("%s ocupa %dx%d=%d pixels. Partitions=%d, halo=%d, partsize=%d pixels\n", argv[1], source->altura, source->ancho, imagesize, partitions, halo, partsize);
     while (c < partitions) {
         ////////////////////////////////////////////////////////////////////////////////
         //Reading Next chunk.
@@ -440,11 +456,19 @@ int main(int argc, char **argv)
         //////////////////////////////////////////////////////////////////////////////////////////////////
         gettimeofday(&tim, NULL);
         start = tim.tv_sec+(tim.tv_usec/1000000.0);
-        
-        convolve2D(source->R, output->R, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-        convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-        convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-        
+
+        /*#pragma omp parallel
+            {
+            #pragma omp sections
+            {
+            #pragma omp section*/
+                convolve2D(source->R, output->R, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
+            //#pragma omp section
+                convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
+            //#pragma omp section
+                convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);        
+           /* }
+        }*/
         gettimeofday(&tim, NULL);
         tconv = tconv + (tim.tv_sec+(tim.tv_usec/1000000.0) - start);
         
