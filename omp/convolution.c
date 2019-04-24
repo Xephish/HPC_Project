@@ -120,8 +120,6 @@ int readImage(ImagenData img, FILE **fp, int dim, int halosize, long *position){
     if (fseek(*fp,*position,SEEK_SET))
         perror("Error: ");
     haloposition = dim-(img->ancho*halosize*2);
-
-    //#pragma omp parallel for schedule(guided, 4) private(i) 
     for(i=0;i<dim;i++) {
         // When start reading the halo store the position in the image file
         if (halosize != 0 && i == haloposition) *position=ftell(*fp);
@@ -135,7 +133,7 @@ int readImage(ImagenData img, FILE **fp, int dim, int halosize, long *position){
 //Duplication of the  just readed source chunk to the destiny image struct chunk
 int duplicateImageChunk(ImagenData src, ImagenData dst, int dim){
     int i=0;
-#pragma omp parallel for schedule(guided, 4) private(i)  // guided best results!
+    #pragma omp parallel for schedule(guided, 1) private(i)  // for loop prallalized with the iterator privatised
     for(i=0;i<dim;i++){
         dst->R[i] = src->R[i];
         dst->G[i] = src->G[i];
@@ -191,7 +189,6 @@ int initfilestore(ImagenData img, FILE **fp, char* nombre, long *position){
 int savingChunk(ImagenData img, FILE **fp, int dim, int offset){
     int i,k=0;
     //Writing image partition
-    //#pragma omp parallel for schedule(guided, 4) private(i)
     for(i=offset;i<dim+offset;i++){
         fprintf(*fp,"%d %d %d ",img->R[i],img->G[i],img->B[i]);
 //        if ((i+1)%6==0) fprintf(*fp,"\n");
@@ -224,18 +221,19 @@ void freeImagestructure(ImagenData *src){
 //
 // signed integer (32bit) version:
 ///////////////////////////////////////////////////////////////////////////////
-
-//#pragma omp parallel for schedule(runtime) private(i, j, m, n, inPtr, inPtr2, outPtr) reduction(+:sum) 
 int convolve2D(int* in, int* out, int dataSizeX, int dataSizeY,
                float* kernel, int kernelSizeX, int kernelSizeY)
 {
     int i, j, m, n;
-    int *inPtr, *inPtr2, *outPtr;
+    
     float *kPtr;
     int kCenterX, kCenterY;
-    int rowMin, rowMax;                             // to check boundary of input array
-    int colMin, colMax;                             //
-    float sum;                                      // temp accumulation buffer
+    int rowMin, rowMax;  // to check boundary of input array
+    int colMin, colMax;                           
+    float sum;          
+    int *inPtr, *inPtr2, *outPtr;
+    int idThread, initX, initY, limitX,l imitY; // temp accumulation buffer
+    int chunkY =  dataSizeY / omp_get_max_threads(); // number of rows assigned to each thread
     
     // check validity of params
     if(!in || !out || !kernel) return -1;
@@ -244,77 +242,74 @@ int convolve2D(int* in, int* out, int dataSizeX, int dataSizeY,
     // find center position of kernel (half of kernel size)
     kCenterX = (int)kernelSizeX / 2;
     kCenterY = (int)kernelSizeY / 2;
-    
-    // init working  pointers
-    inPtr = inPtr2 = &in[dataSizeX * kCenterY + kCenterX];  // note that  it is shifted (kCenterX, kCenterY),
-    outPtr = out;
-    kPtr = kernel;
 
+    // start parallel section
+    #pragma omp parallel private(idThread, initX, initY, limitX, limitY, rowMin, rowMax, colMin, colMax, kPtr, inPtr, inPtr2, outPtr)
+    {   
+        idThread = omp_get_thread_num();
+        kPtr = kernel;
+        initY = idThread * chunkY;  // starting row of the thread
+        limitY = ((idThread + 1) * chunkY) + 1; // total height offset of the working area of the thread
 
-    float chunck =  dataSizeY / omp_get_max_threads(); 
-    
-    //#pragma omp parallel for schedule(guided) private(i, j, m, n) //reduction(+:sum) 
-    // start convolution
+        // init working  pointers
+        inPtr = inPtr2 = &in[dataSizeX + dataSizeX * initY + kCenterY + kCenterX];  // pointer to the starting positon of the input image array, assined to the thread
+        outPtr = &out[dataSizeX * initY + kCenterY + kCenterX]; // pointer to the starting positon of the output image array, assined to the thread
 
-    #pragma omp parallel
-    {
-    int idThread = omp_get_thread_num();
+        // start convolution
+        #pragma omp for schedule(static,chunkY) private(i, j, m, n, sum) // parellelization of the for with a proportional chunk of iterations and the iterators privatised
 
-    int limit = (idThread + 1 * chunck) -1; 
-
-    #pragma omp parallel for schedule(guided) private(i, j, m, n) reduction(+:sum) 
-    for(i= idThread * chunck; i < limit; ++i) 
-
-    //for(i= 0; i < dataSizeY; ++i)                   // number of rows
-    {
-        // compute the range of convolution, the current row of kernel should be between these
-        rowMax = i + kCenterY;
-        rowMin = i - dataSizeY + kCenterY;
-        
-        for(j = 0; j < dataSizeX; ++j)              // number of columns
+        for(i= 0; i < dataSizeY; ++i) // number of rows
         {
-            // compute the range of convolution, the current column of kernel should be between these
-            colMax = j + kCenterX;
-            colMin = j - dataSizeX + kCenterX;
-            
-            sum = 0;                                // set to 0 before accumulate
-            
-            // flip the kernel and traverse all the kernel values
-            // multiply each kernel value with underlying input data
-            for(m = 0; m < kernelSizeY; ++m)        // kernel rows
+            // compute the range of convolution, the current row of kernel should be between these
+            rowMax =  i + kCenterY;  // the offset of the working area is taken into account in the itartator (i), that starts at the begining of the assigned chunk
+            rowMin =  i + kCenterY - limitY;  // minimum row of the working area, with a proportional vertical offset, to compensate the iterator value
+
+            for(j= 0; j < dataSizeX; ++j) // number of columns
             {
-                // check if the index is out of bound of input array
-                if(m <= rowMax && m > rowMin)
-                {
-                    for(n = 0; n < kernelSizeX; ++n)
-                    {
-                        // check the boundary of array
-                        if(n <= colMax && n > colMin)
-                            sum += *(inPtr - n) * *kPtr;
-                        
-                        ++kPtr;                     // next kernel
-                    }
-                }
-                else
-                    kPtr += kernelSizeX;            // out of bound, move to next row of kernel
+                // compute the range of convolution, the current column of kernel should be between these
+                colMax = j + kCenterX;
+                colMin = j - dataSizeX + kCenterX;
+
+                sum = 0;                                // set to 0 before accumulate
                 
-                inPtr -= dataSizeX;                 // move input data 1 raw up
+                // flip the kernel and traverse all the kernel values
+                // multiply each kernel value with underlying input data
+                for(m = 0; m < kernelSizeY; ++m)        // kernel rows
+                {
+                    // check if the index is out of bound of input array
+                    if(m <= rowMax && m > rowMin)
+                    {
+                        for(n = 0; n < kernelSizeX; ++n)
+                        {
+                            // check the boundary of array
+                            if(n <= colMax && n > colMin)
+                                sum += *(inPtr - n) * *kPtr;
+                            
+                            ++kPtr;                     // next kernel
+                        }
+                    }
+                    else
+                        kPtr += kernelSizeX;            // out of bound, move to next row of kernel
+                    
+                    inPtr -= dataSizeX;                 // move input data 1 raw up
+                }
+                
+                // convert integer number
+                if(sum >= 0) *outPtr = (int)(sum + 0.5f);
+    //            else *outPtr = (int)(sum - 0.5f)*(-1);
+                // For using with image editors like GIMP or others...
+                else *outPtr = (int)(sum - 0.5f);
+                // For using with a text editor that read ppm images like libreoffice or others...
+    //            else *outPtr = 0;
+                
+                kPtr = kernel;                          // reset kernel to (0,0)
+                inPtr = ++inPtr2;                       // next input
+                ++outPtr;                               // next output
             }
-            
-            // convert integer number
-            if(sum >= 0) *outPtr = (int)(sum + 0.5f);
-//            else *outPtr = (int)(sum - 0.5f)*(-1);
-            // For using with image editors like GIMP or others...
-            else *outPtr = (int)(sum - 0.5f);
-            // For using with a text editor that read ppm images like libreoffice or others...
-//            else *outPtr = 0;
-            
-            kPtr = kernel;                          // reset kernel to (0,0)
-            inPtr = ++inPtr2;                       // next input
-            ++outPtr;                               // next output
         }
+        //printf("%i\n", *inPtr);
     }
-    }
+
     
     return 0;
 }
@@ -409,7 +404,7 @@ int main(int argc, char **argv)
     int c=0, offset=0;
     imagesize = source->altura*source->ancho;
     partsize  = (source->altura*source->ancho)/partitions;
-    printf("%s ocupa %dx%d=%d pixels. Partitions=%d, halo=%d, partsize=%d pixels\n", argv[1], source->altura, source->ancho, imagesize, partitions, halo, partsize);
+//    printf("%s ocupa %dx%d=%d pixels. Partitions=%d, halo=%d, partsize=%d pixels\n", argv[1], source->altura, source->ancho, imagesize, partitions, halo, partsize);
     while (c < partitions) {
         ////////////////////////////////////////////////////////////////////////////////
         //Reading Next chunk.
@@ -456,19 +451,20 @@ int main(int argc, char **argv)
         //////////////////////////////////////////////////////////////////////////////////////////////////
         gettimeofday(&tim, NULL);
         start = tim.tv_sec+(tim.tv_usec/1000000.0);
-
-        /*#pragma omp parallel
+        
+        /*#pragma omp parallel  // alternative approach
             {
             #pragma omp sections
             {
-            #pragma omp section*/
-                convolve2D(source->R, output->R, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-            //#pragma omp section
-                convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-            //#pragma omp section
-                convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);        
-           /* }
+                #pragma omp section*/
+                    convolve2D(source->R, output->R, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
+                //#pragma omp section
+                    convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
+                //#pragma omp section
+                    convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);        
+          /*  }
         }*/
+
         gettimeofday(&tim, NULL);
         tconv = tconv + (tim.tv_sec+(tim.tv_usec/1000000.0) - start);
         
