@@ -232,7 +232,7 @@ int convolve2D(int* in, int* out, int dataSizeX, int dataSizeY,
     int colMin, colMax;                           
     float sum;          
     int *inPtr, *inPtr2, *outPtr;
-    int idThread, initX, initY, limitX,l imitY; // temp accumulation buffer
+    int idThread, initY, limitY; // temp accumulation buffer
     int chunkY =  dataSizeY / omp_get_max_threads(); // number of rows assigned to each thread
     
     // check validity of params
@@ -244,7 +244,7 @@ int convolve2D(int* in, int* out, int dataSizeX, int dataSizeY,
     kCenterY = (int)kernelSizeY / 2;
 
     // start parallel section
-    #pragma omp parallel private(idThread, initX, initY, limitX, limitY, rowMin, rowMax, colMin, colMax, kPtr, inPtr, inPtr2, outPtr)
+    #pragma omp parallel private(idThread, initY, limitY, rowMin, rowMax, colMin, colMax, kPtr, inPtr, inPtr2, outPtr)
     {   
         idThread = omp_get_thread_num();
         kPtr = kernel;
