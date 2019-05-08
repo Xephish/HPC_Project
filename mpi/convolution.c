@@ -147,15 +147,15 @@ int duplicateImageChunk(ImagenData src, ImagenData dst, int dim){
     //printf( "Hello from process %d of %d (node %s)\n", rank, size, hostname );
 
     int chunk = dim / size;
-    //MPI_Bcast(&chunk, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-    //MPI_Barrier(MPI_COMM_WORLD);          
+    MPI_Bcast(&chunk, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+    MPI_Barrier(MPI_COMM_WORLD);          
 
     int init = chunk * rank;
     int end = (chunk * (rank + 1));
 
-    printf("\nProcess %d received by broadcast value %d, INIT: %i, END: %i",rank, chunk, init, end);
+    printf("\nProcess %d received by broadcast value %d, INIT: %i, END: %i\n",rank, chunk, init, end);
 
-    for(i=0;i<dim;i++){
+    for(i=init;i<end;i++){
         dst->R[i] = src->R[i];
         dst->G[i] = src->G[i];
         dst->B[i] = src->B[i];
@@ -253,11 +253,21 @@ int convolve2D(int* in, int* out, int dataSizeX, int dataSizeY,
     int rowMin, rowMax;                             // to check boundary of input array
     int colMin, colMax;                             //
     float sum;                                      // temp accumulation buffer
+
+    int rank, size;
+    char hostname[256];
+    int namelen;
+
+    MPI_Comm_rank (MPI_COMM_WORLD, &rank);        // get current process id
+    MPI_Comm_size (MPI_COMM_WORLD, &size);        // get number of processes
+    MPI_Get_processor_name(hostname, &namelen);   // get CPU name
+
     
     // check validity of params
     if(!in || !out || !kernel) return -1;
     if(dataSizeX <= 0 || kernelSizeX <= 0) return -1;
-    
+
+
     // find center position of kernel (half of kernel size)
     kCenterX = (int)kernelSizeX / 2;
     kCenterY = (int)kernelSizeY / 2;
@@ -266,6 +276,8 @@ int convolve2D(int* in, int* out, int dataSizeX, int dataSizeY,
     inPtr = inPtr2 = &in[dataSizeX * kCenterY + kCenterX];  // note that  it is shifted (kCenterX, kCenterY),
     outPtr = out;
     kPtr = kernel;
+
+    printf("dtX: %i , dtY: %i  from: %i \n", dataSizeX, dataSizeY, rank);
     
     // start convolution
     for(i= 0; i < dataSizeY; ++i)                   // number of rows
@@ -330,9 +342,6 @@ int main(int argc, char **argv)
     int i=0,j=0,k=0;
 //    int headstored=0, imagestored=0, stored;
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////
-    // READING IMAGE HEADERS, KERNEL Matrix, DUPLICATE IMAGE DATA, OPEN RESULTING IMAGE FILE
-    //////////////////////////////////////////////////////////////////////////////////////////////////
     int imagesize, partitions, partsize, chunksize, halo, halosize;
     long position=0;
     double start, tstart=0, tend=0, tread=0, tcopy=0, tconv=0, tstore=0, treadk=0;
@@ -364,27 +373,6 @@ int main(int argc, char **argv)
 
     if(rank == 0){
         
-        
-        
-    
-        
-        //////////////////////////////////////////////////////////////////////////////////////////////////
-        // READING IMAGE HEADERS, KERNEL Matrix, DUPLICATE IMAGE DATA, OPEN RESULTING IMAGE FILE
-        //////////////////////////////////////////////////////////////////////////////////////////////////
-        /*nt imagesize, partitions, partsize, chunksize, halo, halosize;
-        long position=0;
-        double start, tstart=0, tend=0, tread=0, tcopy=0, tconv=0, tstore=0, treadk=0;
-        struct timeval tim;
-        FILE *fpsrc=NULL,*fpdst=NULL;
-        ImagenData source=NULL, output=NULL;*/
-
-        // Store number of partitions
-        
-        //MPI_Bcast(&partitions, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        ////////////////////////////////////////
-        //Reading kernel matrix
-        //gettimeofday(&tim, NULL);
-        //start = tim.tv_sec+(tim.tv_usec/1000000.0);
         start = MPI_Wtime();
         tstart = start;
         
@@ -478,19 +466,83 @@ int main(int argc, char **argv)
 
 
             ////////
-
-            if(output == NULL){
-                printf("source null, form %i\n", rank);
-            }
-
-            if ( duplicateImageChunk(source, output, chunksize) ) {
-                return -1;
-            }
         }
+
+        int sHeigth, sWidth, sMaxcolor, sP, *sR, *sG, *sB, oHeigth, oWidth, oMaxcolor, oP, *oR, *oG, *oB;
+        char *sComment, *oComment;
+
+        if(rank == 0){
+            sHeigth = source->altura;
+            sWidth = source->ancho;
+            sMaxcolor = source->maxcolor;
+            sP = source->P;
+            sR = source->R;
+            sG = source->G;
+            sB = source->B;
+            sComment = source->comentario;
+
+            oHeigth = output->altura;
+            oWidth = output->ancho;
+            oMaxcolor = output->maxcolor;
+            oP = output->P;
+            oR = output->R;
+            oG = output->G;
+            oB = output->B;
+            oComment = source->comentario;
+        }
+
+        MPI_Bcast(&sHeigth, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&sWidth, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&sMaxcolor, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&sP, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&sR, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&sG, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&sB, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&sComment, 100, MPI_CHAR, 0, MPI_COMM_WORLD); 
+
+        MPI_Bcast(&oHeigth, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&oWidth, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&oMaxcolor, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&oP, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&oR, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&oG, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&oB, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&oComment, 100, MPI_CHAR, 0, MPI_COMM_WORLD); 
+
+        MPI_Bcast(&chunksize, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
         MPI_Barrier(MPI_COMM_WORLD);
 
+        printf("dx: %i | dy: %i | kx: %i | ky: %i ||| form %i\n", sHeigth, sWidth, oHeigth, oWidth, rank);
+
+        ImagenData s = (ImagenData) malloc(sizeof(struct imagenppm));
+        ImagenData o = (ImagenData) malloc(sizeof(struct imagenppm));
+
+        s->altura = sHeigth;
+        s->ancho = sWidth;
+        s->maxcolor = sMaxcolor;
+        s->P = sP;
+        s->R = sR;
+        s->G = sG;
+        s->B = sB;
+        s->comentario = sComment;
+
+        o->altura = oHeigth;
+        o->ancho = oWidth;
+        o->maxcolor = oMaxcolor;
+        o->P = oP;
+        o->R = oR;
+        o->G = oG;
+        o->B = oB;
+        o->comentario = oComment;
+
         // DUPLICATE IMAGE CHUNK HERE!!!
+
+        if ( duplicateImageChunk(s, o, chunksize) ) {
+            return -1;
+        }
+
+        MPI_Barrier(MPI_COMM_WORLD);
 
         if(rank == 0){
             //mpi_tcopy = MPI_Wtime() - mpi_tim;
@@ -508,14 +560,64 @@ int main(int argc, char **argv)
             start = MPI_Wtime();
 
             ///// 
+
             convolve2D(source->R, output->R, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
             convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
             convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-        
+           
         }
 
+        int dataSizeX, dataSizeY, kernelSizeX, kernelSizeY;
+        int *redIn, *redOut, *greenIn, *greenOut, *blueIn, *blueOut;
+        float* kernel;
+        
+        if(rank == 0){
+            dataSizeX = source->ancho;
+            dataSizeY = (source->altura/partitions)+halosize;
+            kernel = kern->vkern;
+            kernelSizeX = kern->kernelX;
+            kernelSizeY = kern->kernelY;
+
+            redIn = source->R;
+            redOut = output->R;
+
+            greenIn = source->R;
+            greenOut = output->R;
+
+            blueIn = source->R;
+            blueOut = output->R;
+        }
+
+
+        MPI_Bcast(&dataSizeX, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&dataSizeY, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&kernelSizeX, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&kernelSizeY, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&kernel, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&redIn, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&redOut, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&greenIn, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&greenOut, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&blueIn, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&blueOut, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+
         MPI_Barrier(MPI_COMM_WORLD);
+
+        if(redOut == NULL){
+            printf("null from %i\n", rank);
+        }
+
+        printf("dx: %i | dy: %i | kx: %i | ky: %i ||| form %i\n", dataSizeX, dataSizeY, kernelSizeX, kernelSizeY, rank);
+
+        /*convolve2D(redIn, redOut, dataSizeX, dataSizeY, kernel, kernelSizeX, kernelSizeY);
+        convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
+        convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);*/
+
         // CONVOLUTION 2D HERE!!!
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
         
         if(rank == 0){
             //gettimeofday(&tim, NULL);
