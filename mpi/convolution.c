@@ -547,6 +547,8 @@ int main(int argc, char **argv)
 
         //MPI_Barrier(MPI_COMM_WORLD);
 
+        int kernelSize = 0;
+
         if(rank == 0){
             //mpi_tcopy = MPI_Wtime() - mpi_tim;
 
@@ -564,19 +566,27 @@ int main(int argc, char **argv)
 
             ///// 
 
-            convolve2D(source->R, output->R, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
+            /*convolve2D(source->R, output->R, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
             convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-            convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-           
+            convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);*/
+           kernelSize = (int) kern->kernelX * kern->kernelY;
         }
 
 
         int dataSizeX, dataSizeY, kernelSizeX, kernelSizeY;
         int *redIn, *redOut, *greenIn, *greenOut, *blueIn, *blueOut;
-        float* kernel;
+
+        //int kernelSize = (int) kern->kernelX * kern->kernelY;
+        MPI_Bcast(&kernelSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+        float* kernel =  malloc(sizeof(float) * kernelSize);
         int chunk = 0;
+
         
         if(rank == 0){
+            printf("k size %li   %i   %i  %i\n", sizeof(kern->vkern), kern->kernelX, kern->kernelY, kern->kernelX * kern->kernelY);
+            
+
             dataSizeX = source->ancho;
             dataSizeY = (source->altura/partitions)+halosize;
             kernel = kern->vkern;
@@ -593,6 +603,13 @@ int main(int argc, char **argv)
             blueOut = output->R;
 
             chunk = dataSizeY / size;
+
+            /*for(int i= 0; i < kernelSizeX * kernelSizeY; i++){
+                printf(" %f ||| %i ||| %i \n", kernel[i], i, rank);
+            }*/
+        }
+        else{
+            kernel =  malloc(sizeof(float) * 25);
         }
 
         
@@ -609,17 +626,31 @@ int main(int argc, char **argv)
         MPI_Bcast(&kernelSizeX, 1, MPI_INT, 0, MPI_COMM_WORLD);
         MPI_Bcast(&kernelSizeY, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-        MPI_Bcast(&kernel, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(kernel, kernelSizeX * kernelSizeY, MPI_FLOAT, 0, MPI_COMM_WORLD);
 
         int imageChunkSize = chunk * dataSizeX;
 
     // MPI_Scatter(void* send_data,int send_count, MPI_Datatype send_datatype, void* recv_data, int recv_count,
        // MPI_Datatype recv_datatype, int root,  MPI_Comm communicator)
 
-        int *received_chunk = malloc(sizeof(int) * imageChunkSize);
+        int *rInRed = malloc(sizeof(int) * imageChunkSize);
+        int *rInGreen = malloc(sizeof(int) * imageChunkSize);
+        int *rInBlue = malloc(sizeof(int) * imageChunkSize);
+
+        int *rOutRed = malloc(sizeof(int) * imageChunkSize);
+        int *rOutGreen = malloc(sizeof(int) * imageChunkSize);
+        int *rOutBlue = malloc(sizeof(int) * imageChunkSize);
 
 
-        MPI_Scatter(redIn, imageChunkSize, MPI_INT, received_chunk, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
+        MPI_Scatter(redIn, imageChunkSize, MPI_INT, rInRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
+        MPI_Scatter(greenIn, imageChunkSize, MPI_INT, rInGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Scatter(blueIn, imageChunkSize, MPI_INT, rInBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+
+        MPI_Scatter(redOut, imageChunkSize, MPI_INT, rOutRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
+        MPI_Scatter(greenOut, imageChunkSize, MPI_INT, rOutGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Scatter(blueOut, imageChunkSize, MPI_INT, rOutBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+
+
         /*MPI_Bcast(&redOut, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD); 
         MPI_Bcast(&greenIn, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
         MPI_Bcast(&greenOut, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
@@ -629,32 +660,71 @@ int main(int argc, char **argv)
 
         MPI_Barrier(MPI_COMM_WORLD);
 
-        printf("size of:  %i   form: %i\n", (int) sizeof(*received_chunk), rank);
+        //printf("size of:  %i   form: %i\n", (int) sizeof(*received_chunk), rank);
 
-        if(rank == 2){
+        if(rank == 1){
 
 
-            if(received_chunk == NULL){
+            /*if(kernel == NULL){
                 printf("null from %i\n", rank);
-            }
+            }*/
 
 
-            for(int i= 0; i < imageChunkSize; i++){
-                printf(" %i ||| %i ||| %i\n", received_chunk[i], i, rank);
+            /*for(int i= 0; i < imageChunkSize; i++){
+                printf(" %i ||| %i ||| %i ||| %i ||| %i ||| %i ||| %i ||| %i\n", rInRed[i], 
+                    rInGreen[i], rInBlue[i], rOutRed[i], rOutGreen[i], rOutBlue[i], i, rank);
+            }*/
+            for(int i= 0; i < kernelSizeX * kernelSizeY; i++){
+                printf(" %f ||| %i ||| %i \n", kernel[i], i, rank);
             }
-            
         }
-
             
-        
-        
 
         printf("dx: %i | dy: %i | kx: %i | ky: %i ||| form %i\n", dataSizeX, dataSizeY, kernelSizeX, kernelSizeY, rank);
 
         // SCATTER HERE
 
-        /*convolve2D(redIn, redOut, dataSizeX, dataSizeY, kernel, kernelSizeX, kernelSizeY);
-        convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
+        convolve2D(rInRed, rOutRed, dataSizeX, chunk, kernel, kernelSizeX, kernelSizeY);
+        convolve2D(rInGreen, rOutGreen, dataSizeX, chunk, kernel, kernelSizeX, kernelSizeY);
+        convolve2D(rInBlue, rOutBlue, dataSizeX, chunk, kernel, kernelSizeX, kernelSizeY);
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        /*if(rank == 0){
+            for(int i= 0; i < imageChunkSize; i++){
+                printf(" %i ||| %i ||| %i ||| %i \n", i, i, i, rank);nelSizeX, ker
+            }
+        }*/
+
+        int *fOutRed = NULL/* = malloc(sizeof(int) * imageChunkSize)*/;
+        int *fOutGreen = NULL/* = malloc(sizeof(int) * imageChunkSize)*/;
+        int *fOutBlue = NULL/*= malloc(sizeof(int) * imageChunkSize)*/;
+
+        if(rank == 0){
+            fOutRed =  malloc(sizeof(int) * dataSizeX * dataSizeY);
+            fOutGreen = malloc(sizeof(int) * dataSizeX * dataSizeY);
+            fOutBlue = malloc(sizeof(int) * dataSizeX * dataSizeY);
+        }
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        printf(" %i ||| %i ||| %i ||| %i ||| %li \n", rInRed[i], rOutRed[i], i, rank, sizeof(*rOutRed));
+
+        MPI_Gather(rOutRed, imageChunkSize, MPI_INT, fOutRed, dataSizeX * dataSizeY, MPI_INT, 0, MPI_COMM_WORLD);  
+        MPI_Gather(rOutGreen, imageChunkSize, MPI_INT, fOutGreen, dataSizeX * dataSizeY, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Gather(rOutBlue, imageChunkSize, MPI_INT, fOutBlue, dataSizeX * dataSizeY, MPI_INT, 0, MPI_COMM_WORLD);
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        /*output->R = fOutRed;
+        output->G = fOutGreen;
+        output->B = fOutBlue;
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+
+
+        /*convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
         convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);*/
 
         // CONVOLUTION 2D HERE!!!
