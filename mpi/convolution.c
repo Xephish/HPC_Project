@@ -365,70 +365,93 @@ int main(int argc, char **argv)
 
     partitions = atoi(argv[4]);
 
+    /*MPI_Init (&argc, &argv);      /* starts MPI */
+
+    /*MPI_Comm_rank (MPI_COMM_WORLD, &rank);
+    MPI_Comm_size (MPI_COMM_WORLD, &size);*/
+
+
+        
+    gettimeofday(&tim, NULL);
+    start = tim.tv_sec+(tim.tv_usec/1000000.0);
+    tstart = start;
+    
+    if ((kern = leerKernel(argv[2]))==NULL) {
+        //        free(source);
+        //        free(output);
+        return -1;
+    }
+    //The matrix kernel define the halo size to use with the image. The halo is zero when the image is not partitioned.
+    if (partitions==1) halo=0;
+    else halo = (kern->kernelY/2)*2;
+    // gettimeofday(&tim, NULL);
+    gettimeofday(&tim, NULL);
+    treadk = treadk + (tim.tv_sec+(tim.tv_usec/1000000.0) - start);
+
+    ////////////////////////////////////////
+    //Reading Image Header. Image properties: Magical number, comment, size and color resolution.
+    //gettimeofday(&tim, NULL);
+    gettimeofday(&tim, NULL);
+    start = tim.tv_sec+(tim.tv_usec/1000000.0);
+    //Memory allocation based on number of partitions and halo size.
+    if ((source = initimage(argv[1], &fpsrc, partitions, halo)) == NULL) {
+        return -1;
+    }
+    gettimeofday(&tim, NULL);
+    tread = tread + (tim.tv_sec+(tim.tv_usec/1000000.0) - start);
+    
+    //Duplicate the image struct.
+    //gettimeofday(&tim, NULL);
+    gettimeofday(&tim, NULL);
+    start = tim.tv_sec+(tim.tv_usec/1000000.0);
+    if ( (output = duplicateImageData(source, partitions, halo)) == NULL) {
+        return -1;
+    }
+    gettimeofday(&tim, NULL);
+    tcopy = tcopy + (tim.tv_sec+(tim.tv_usec/1000000.0) - start);
+    ////////////////////////////////////////
+    //Initialize Image Storing file. Open the file and store the image header.
+    //gettimeofday(&tim, NULL);
+    gettimeofday(&tim, NULL);
+    start = tim.tv_sec+(tim.tv_usec/1000000.0);
+    if (initfilestore(output, &fpdst, argv[3], &position)!=0) {
+        perror("Error: ");
+        //        free(source);
+        //        free(output);
+        return -1;
+    }
+    gettimeofday(&tim, NULL);
+    tstore = tstore + (tim.tv_sec+(tim.tv_usec/1000000.0) - start);
+
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////
+    // CHUNK READING
+    //////////////////////////////////////////////////////////////////////////////////////////////////
+    imagesize = source->altura*source->ancho;
+    partsize  = (source->altura*source->ancho)/partitions;
+//    printf("%s ocupa %dx%d=%d pixels. Partitions=%d, halo=%d, partsize=%d pixels\n", argv[1], source->altura, source->ancho, imagesize, partitions, halo, partsize);
+    
+    int kernelSize = (int) kern->kernelX * kern->kernelY;
+
     MPI_Init (&argc, &argv);      /* starts MPI */
 
     MPI_Comm_rank (MPI_COMM_WORLD, &rank);
     MPI_Comm_size (MPI_COMM_WORLD, &size);
 
-    if(rank == 0){
-        
-        start = MPI_Wtime();
-        tstart = start;
-        
-        if ((kern = leerKernel(argv[2]))==NULL) {
-            //        free(source);
-            //        free(output);
-            return -1;
-        }
-        //The matrix kernel define the halo size to use with the image. The halo is zero when the image is not partitioned.
-        if (partitions==1) halo=0;
-        else halo = (kern->kernelY/2)*2;
-        // gettimeofday(&tim, NULL);
-        treadk = treadk + (MPI_Wtime() - start);
-
-        ////////////////////////////////////////
-        //Reading Image Header. Image properties: Magical number, comment, size and color resolution.
-        //gettimeofday(&tim, NULL);
-        start = MPI_Wtime();
-        //Memory allocation based on number of partitions and halo size.
-        if ((source = initimage(argv[1], &fpsrc, partitions, halo)) == NULL) {
-            return -1;
-        }
-        //gettimeofday(&tim, NULL);
-        tread = tread + (MPI_Wtime() - start);
-        
-        //Duplicate the image struct.
-        //gettimeofday(&tim, NULL);
-        start = MPI_Wtime();
-        if ( (output = duplicateImageData(source, partitions, halo)) == NULL) {
-            return -1;
-        }
-        //gettimeofday(&tim, NULL);
-        tcopy = tcopy + (MPI_Wtime() - start);
-        
-        ////////////////////////////////////////
-        //Initialize Image Storing file. Open the file and store the image header.
-        //gettimeofday(&tim, NULL);
-        start = MPI_Wtime();
-        if (initfilestore(output, &fpdst, argv[3], &position)!=0) {
-            perror("Error: ");
-            //        free(source);
-            //        free(output);
-            return -1;
-        }
-        //gettimeofday(&tim, NULL);
-        tstore = tstore + (MPI_Wtime() - start);
-
-        //////////////////////////////////////////////////////////////////////////////////////////////////
-        // CHUNK READING
-        //////////////////////////////////////////////////////////////////////////////////////////////////
-        int /*c=0,*/ offset=0;
-        imagesize = source->altura*source->ancho;
-        partsize  = (source->altura*source->ancho)/partitions;
-//    printf("%s ocupa %dx%d=%d pixels. Partitions=%d, halo=%d, partsize=%d pixels\n", argv[1], source->altura, source->ancho, imagesize, partitions, halo, partsize);
-    }
-
     while (c < partitions) {
+        
+        int dataSizeX, dataSizeY, kernelSizeX, kernelSizeY;
+        int *redIn, *redOut, *greenIn, *greenOut, *blueIn, *blueOut;
+
+        //MPI_Bcast(&kernelSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+        float* kernel =  malloc(sizeof(float) * kernelSize);
+        int chunk = 0;
+
+        int *fOutRed = NULL/* = malloc(sizeof(int) * imageChunkSize)*/;
+        int *fOutGreen = NULL/* = malloc(sizeof(int) * imageChunkSize)*/;
+        int *fOutBlue = NULL/*= malloc(sizeof(int) * imageChunkSize)*/;
+
         ////////////////////////////////////////////////////////////////////////////////
         //Reading Next chunk.
         if(rank == 0){
@@ -469,9 +492,152 @@ int main(int argc, char **argv)
                 return -1;
             }
 
+            tcopy = tcopy + (MPI_Wtime() - start);
+            
+            start = MPI_Wtime();
+            //kernelSize = (int) kern->kernelX * kern->kernelY;
+
+            printf("k size %li   %i   %i  %i\n", sizeof(kern->vkern), kern->kernelX, kern->kernelY, kern->kernelX * kern->kernelY);
+            
+
+            dataSizeX = source->ancho;
+            dataSizeY = (source->altura/partitions)+halosize;
+            kernel = kern->vkern;
+            kernelSizeX = kern->kernelX;
+            kernelSizeY = kern->kernelY;
+
+            redIn = source->R;
+            redOut = output->R;
+
+            greenIn = source->G;
+            greenOut = output->G;
+
+            blueIn = source->B;
+            blueOut = output->B;
+
+            chunk = dataSizeY / size;
+
+            fOutRed =  malloc(sizeof(int) * dataSizeX * dataSizeY);
+            fOutGreen = malloc(sizeof(int) * dataSizeX * dataSizeY);
+            fOutBlue = malloc(sizeof(int) * dataSizeX * dataSizeY);
         }
 
-        /*int sHeigth, sWidth, sMaxcolor, sP, *sR, *sG, *sB, oHeigth, oWidth, oMaxcolor, oP, *oR, *oG, *oB;
+        
+        MPI_Bcast(&chunk, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&dataSizeX, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+        MPI_Bcast(&dataSizeY, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        int imageChunkSize = chunk * dataSizeX;
+
+        int *rInRed = malloc(sizeof(int) * imageChunkSize);
+        int *rInGreen = malloc(sizeof(int) * imageChunkSize);
+        int *rInBlue = malloc(sizeof(int) * imageChunkSize);
+
+        int *rOutRed = malloc(sizeof(int) * imageChunkSize);
+        int *rOutGreen = malloc(sizeof(int) * imageChunkSize);
+        int *rOutBlue = malloc(sizeof(int) * imageChunkSize);
+
+
+        MPI_Scatter(redIn, imageChunkSize, MPI_INT, rInRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
+        MPI_Scatter(greenIn, imageChunkSize, MPI_INT, rInGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Scatter(blueIn, imageChunkSize, MPI_INT, rInBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+
+        MPI_Scatter(redOut, imageChunkSize, MPI_INT, rOutRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
+        MPI_Scatter(greenOut, imageChunkSize, MPI_INT, rOutGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Scatter(blueOut, imageChunkSize, MPI_INT, rOutBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+       // printf("dx: %i | dy: %i | kx: %i | ky: %i ||| form %i\n", dataSizeX, dataSizeY, kernelSizeX, kernelSizeY, rank);
+
+        convolve2D(rInRed, rOutRed, dataSizeX, chunk, kern->vkern, kern->kernelX, kern->kernelY);
+        convolve2D(rInGreen, rOutGreen, dataSizeX, chunk, kern->vkern, kern->kernelX, kern->kernelY);
+        convolve2D(rInBlue, rOutBlue, dataSizeX, chunk, kern->vkern, kern->kernelX, kern->kernelY);
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        //MPI_Barrier(MPI_COMM_WORLD);
+
+        MPI_Gather(rOutRed, imageChunkSize, MPI_INT, fOutRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
+        MPI_Gather(rOutGreen, imageChunkSize, MPI_INT, fOutGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Gather(rOutBlue, imageChunkSize, MPI_INT, fOutBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
+
+        /*if(rank == 0){
+            for(int i= 0; i < dataSizeX * dataSizeY; i++){
+                printf(" %i ||| %i ||| %i ||| %i ||| %i \n", rOutRed[i], rOutGreen[i], rOutBlue[i], i, rank);
+            }
+        }*/
+
+        MPI_Barrier(MPI_COMM_WORLD);
+        
+        if(rank == 0){
+            output->R = fOutRed;
+            output->G = fOutGreen;
+            output->B = fOutBlue;
+
+            tconv = tconv + (MPI_Wtime() - start);
+            
+            //////////////////////////////////////////////////////////////////////////////////////////////////
+            // CHUNK SAVING
+            //////////////////////////////////////////////////////////////////////////////////////////////////
+            //Storing resulting image partition.
+            //gettimeofday(&tim, NULL);
+            start = MPI_Wtime();
+            if (savingChunk(output, &fpdst, partsize, offset)) {
+                perror("Error: ");
+                //        free(source);
+                //        free(output);
+                return -1;
+            }
+            //gettimeofday(&tim, NULL);
+            tstore = tstore + (MPI_Wtime() - start);
+            //Next partition
+            c++;
+        }
+
+        MPI_Bcast(&c, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+
+    MPI_Finalize();
+
+    fclose(fpsrc);
+    fclose(fpdst);
+    
+//    freeImagestructure(&source);
+//    freeImagestructure(&output);
+    
+    gettimeofday(&tim, NULL);
+    tend = tim.tv_sec+(tim.tv_usec/1000000.0);
+    
+    printf("Imatge: %s\n", argv[1]);
+    printf("ISizeX : %d\n", source->ancho);
+    printf("ISizeY : %d\n", source->altura);
+    printf("kSizeX : %d\n", kern->kernelX);
+    printf("kSizeY : %d\n", kern->kernelY);
+    printf("%.6lf seconds elapsed for Reading image file.\n", tread);
+    printf("%.6lf seconds elapsed for copying image structure.\n", tcopy);
+    printf("%.6lf seconds elapsed for Reading kernel matrix.\n", treadk);
+    printf("%.6lf seconds elapsed for make the convolution.\n", tconv);
+    printf("%.6lf seconds elapsed for writing the resulting image.\n", tstore);
+    printf("%.6lf seconds elapsed %i\n", tend-tstart, rank);
+    
+    freeImagestructure(&source);
+    freeImagestructure(&output);
+
+    /*total_elapsed = MPI_Wtime() - mpi_start;
+    printf("%.6lf seconds elapsed for copying image structure.\n", mpi_tcopy);
+    printf("MPI %.6lf seconds elapsed\n", total_elapsed);*/
+    //MPI_Barrier(MPI_COMM_WORLD);
+
+    
+    return 0;
+}
+
+/*int sHeigth, sWidth, sMaxcolor, sP, *sR, *sG, *sB, oHeigth, oWidth, oMaxcolor, oP, *oR, *oG, *oB;
         char *sComment, *oComment;
 
         if(rank == 0){
@@ -538,261 +704,3 @@ int main(int argc, char **argv)
         o->G = oG;
         o->B = oB;
         o->comentario = oComment;*/
-
-        // DUPLICATE IMAGE CHUNK HERE!!!
-
-        /*if ( duplicateImageChunk(s, o, chunksize) ) {
-            return -1;
-        }*/
-
-        //MPI_Barrier(MPI_COMM_WORLD);
-
-        int kernelSize = 0;
-
-        if(rank == 0){
-            //mpi_tcopy = MPI_Wtime() - mpi_tim;
-
-            //DEBUG
-    //        for (i=0;i<chunksize;i++)
-    //            if (source->R[i]!=output->R[i] || source->G[i]!=output->G[i] || source->B[i]!=output->B[i]) printf("At position i=%d %d!=%d,%d!=%d,%d!=%d\n",i,source->R[i],output->R[i], source->G[i],output->G[i],source->B[i],output->B[i]);
-            //gettimeofday(&tim, NULL);
-            tcopy = tcopy + (MPI_Wtime() - start);
-            
-            //////////////////////////////////////////////////////////////////////////////////////////////////
-            // CHUNK CONVOLUTION
-            //////////////////////////////////////////////////////////////////////////////////////////////////
-            //gettimeofday(&tim, NULL);
-            start = MPI_Wtime();
-
-            ///// 
-
-            /*convolve2D(source->R, output->R, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-            convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-            convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);*/
-           kernelSize = (int) kern->kernelX * kern->kernelY;
-        }
-
-
-        int dataSizeX, dataSizeY, kernelSizeX, kernelSizeY;
-        int *redIn, *redOut, *greenIn, *greenOut, *blueIn, *blueOut;
-
-        //int kernelSize = (int) kern->kernelX * kern->kernelY;
-        MPI_Bcast(&kernelSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-        float* kernel =  malloc(sizeof(float) * kernelSize);
-        int chunk = 0;
-
-        
-        if(rank == 0){
-            printf("k size %li   %i   %i  %i\n", sizeof(kern->vkern), kern->kernelX, kern->kernelY, kern->kernelX * kern->kernelY);
-            
-
-            dataSizeX = source->ancho;
-            dataSizeY = (source->altura/partitions)+halosize;
-            kernel = kern->vkern;
-            kernelSizeX = kern->kernelX;
-            kernelSizeY = kern->kernelY;
-
-            redIn = source->R;
-            redOut = output->R;
-
-            greenIn = source->R;
-            greenOut = output->R;
-
-            blueIn = source->R;
-            blueOut = output->R;
-
-            chunk = dataSizeY / size;
-
-            /*for(int i= 0; i < kernelSizeX * kernelSizeY; i++){
-                printf(" %f ||| %i ||| %i \n", kernel[i], i, rank);
-            }*/
-        }
-        else{
-            kernel =  malloc(sizeof(float) * 25);
-        }
-
-        
-        MPI_Bcast(&chunk, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        int init = chunk * rank;
-        int end = (chunk * (rank + 1));
-
-        printf("init: %i , end: %i  from: %i, chunck %i \n", init, end, rank, chunk);
-
-        MPI_Bcast(&dataSizeX, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&dataSizeY, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&kernelSizeX, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&kernelSizeY, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-        MPI_Bcast(kernel, kernelSizeX * kernelSizeY, MPI_FLOAT, 0, MPI_COMM_WORLD);
-
-        int imageChunkSize = chunk * dataSizeX;
-
-    // MPI_Scatter(void* send_data,int send_count, MPI_Datatype send_datatype, void* recv_data, int recv_count,
-       // MPI_Datatype recv_datatype, int root,  MPI_Comm communicator)
-
-        int *rInRed = malloc(sizeof(int) * imageChunkSize);
-        int *rInGreen = malloc(sizeof(int) * imageChunkSize);
-        int *rInBlue = malloc(sizeof(int) * imageChunkSize);
-
-        int *rOutRed = malloc(sizeof(int) * imageChunkSize);
-        int *rOutGreen = malloc(sizeof(int) * imageChunkSize);
-        int *rOutBlue = malloc(sizeof(int) * imageChunkSize);
-
-
-        MPI_Scatter(redIn, imageChunkSize, MPI_INT, rInRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
-        MPI_Scatter(greenIn, imageChunkSize, MPI_INT, rInGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Scatter(blueIn, imageChunkSize, MPI_INT, rInBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-
-        MPI_Scatter(redOut, imageChunkSize, MPI_INT, rOutRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
-        MPI_Scatter(greenOut, imageChunkSize, MPI_INT, rOutGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Scatter(blueOut, imageChunkSize, MPI_INT, rOutBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-
-
-        /*MPI_Bcast(&redOut, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&greenIn, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&greenOut, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&blueIn, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&blueOut, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);*/
-
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        //printf("size of:  %i   form: %i\n", (int) sizeof(*received_chunk), rank);
-
-        if(rank == 1){
-
-
-            /*if(kernel == NULL){
-                printf("null from %i\n", rank);
-            }*/
-
-
-            /*for(int i= 0; i < imageChunkSize; i++){
-                printf(" %i ||| %i ||| %i ||| %i ||| %i ||| %i ||| %i ||| %i\n", rInRed[i], 
-                    rInGreen[i], rInBlue[i], rOutRed[i], rOutGreen[i], rOutBlue[i], i, rank);
-            }*/
-            for(int i= 0; i < kernelSizeX * kernelSizeY; i++){
-                printf(" %f ||| %i ||| %i \n", kernel[i], i, rank);
-            }
-        }
-            
-
-        printf("dx: %i | dy: %i | kx: %i | ky: %i ||| form %i\n", dataSizeX, dataSizeY, kernelSizeX, kernelSizeY, rank);
-
-        // SCATTER HERE
-
-        convolve2D(rInRed, rOutRed, dataSizeX, chunk, kernel, kernelSizeX, kernelSizeY);
-        convolve2D(rInGreen, rOutGreen, dataSizeX, chunk, kernel, kernelSizeX, kernelSizeY);
-        convolve2D(rInBlue, rOutBlue, dataSizeX, chunk, kernel, kernelSizeX, kernelSizeY);
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        /*if(rank == 0){
-            for(int i= 0; i < imageChunkSize; i++){
-                printf(" %i ||| %i ||| %i ||| %i \n", i, i, i, rank);nelSizeX, ker
-            }
-        }*/
-
-        int *fOutRed = NULL/* = malloc(sizeof(int) * imageChunkSize)*/;
-        int *fOutGreen = NULL/* = malloc(sizeof(int) * imageChunkSize)*/;
-        int *fOutBlue = NULL/*= malloc(sizeof(int) * imageChunkSize)*/;
-
-        if(rank == 0){
-            fOutRed =  malloc(sizeof(int) * dataSizeX * dataSizeY);
-            fOutGreen = malloc(sizeof(int) * dataSizeX * dataSizeY);
-            fOutBlue = malloc(sizeof(int) * dataSizeX * dataSizeY);
-        }
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        printf(" %i ||| %i ||| %i ||| %i ||| %li \n", rInRed[i], rOutRed[i], i, rank, sizeof(*rOutRed));
-
-        MPI_Gather(rOutRed, imageChunkSize, MPI_INT, fOutRed, dataSizeX * dataSizeY, MPI_INT, 0, MPI_COMM_WORLD);  
-        MPI_Gather(rOutGreen, imageChunkSize, MPI_INT, fOutGreen, dataSizeX * dataSizeY, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Gather(rOutBlue, imageChunkSize, MPI_INT, fOutBlue, dataSizeX * dataSizeY, MPI_INT, 0, MPI_COMM_WORLD);
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        /*output->R = fOutRed;
-        output->G = fOutGreen;
-        output->B = fOutBlue;
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-
-
-        /*convolve2D(source->G, output->G, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);
-        convolve2D(source->B, output->B, source->ancho, (source->altura/partitions)+halosize, kern->vkern, kern->kernelX, kern->kernelY);*/
-
-        // CONVOLUTION 2D HERE!!!
-
-        // GATHER HERE
-
-        //MPI_Barrier(MPI_COMM_WORLD);
-
-        
-        if(rank == 0){
-            //gettimeofday(&tim, NULL);
-            tconv = tconv + (MPI_Wtime() - start);
-            
-            //////////////////////////////////////////////////////////////////////////////////////////////////
-            // CHUNK SAVING
-            //////////////////////////////////////////////////////////////////////////////////////////////////
-            //Storing resulting image partition.
-            //gettimeofday(&tim, NULL);
-            start = MPI_Wtime();
-            if (savingChunk(output, &fpdst, partsize, offset)) {
-                perror("Error: ");
-                //        free(source);
-                //        free(output);
-                return -1;
-            }
-            //gettimeofday(&tim, NULL);
-            tstore = tstore + (MPI_Wtime() - start);
-            //Next partition
-            c++;
-        }
-
-        MPI_Bcast(&c, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    }
-
-    if(rank == 0){
-
-        fclose(fpsrc);
-        fclose(fpdst);
-        
-    //    freeImagestructure(&source);
-    //    freeImagestructure(&output);
-        
-        //gettimeofday(&tim, NULL);
-        tend = MPI_Wtime();
-        
-        printf("Imatge: %s\n", argv[1]);
-        printf("ISizeX : %d\n", source->ancho);
-        printf("ISizeY : %d\n", source->altura);
-        printf("kSizeX : %d\n", kern->kernelX);
-        printf("kSizeY : %d\n", kern->kernelY);
-        printf("%.6lf seconds elapsed for Reading image file.\n", tread);
-        printf("%.6lf seconds elapsed for copying image structure.\n", tcopy);
-        printf("%.6lf seconds elapsed for Reading kernel matrix.\n", treadk);
-        printf("%.6lf seconds elapsed for make the convolution.\n", tconv);
-        printf("%.6lf seconds elapsed for writing the resulting image.\n", tstore);
-        printf("%.6lf seconds elapsed\n", tend-tstart);
-        
-        freeImagestructure(&source);
-        freeImagestructure(&output);
-
-        /*total_elapsed = MPI_Wtime() - mpi_start;
-        printf("%.6lf seconds elapsed for copying image structure.\n", mpi_tcopy);
-        printf("MPI %.6lf seconds elapsed\n", total_elapsed);*/
-        //MPI_Barrier(MPI_COMM_WORLD);
-
-    }
-
-    MPI_Finalize();
-    
-    return 0;
-}
