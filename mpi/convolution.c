@@ -599,34 +599,39 @@ int main(int argc, char **argv)
 
         MPI_Bcast(&c, 1, MPI_INT, 0, MPI_COMM_WORLD);
     }
-    MPI_Barrier(MPI_COMM_WORLD);
+    //MPI_Barrier(MPI_COMM_WORLD);
+
+
+    if(rank == 0){
+        fclose(fpsrc);
+        fclose(fpdst);
+        
+    //    freeImagestructure(&source);
+    //    freeImagestructure(&output);
+        
+        gettimeofday(&tim, NULL);
+        tend = tim.tv_sec+(tim.tv_usec/1000000.0);
+        
+        printf("Imatge: %s\n", argv[1]);
+        printf("ISizeX : %d\n", source->ancho);
+        printf("ISizeY : %d\n", source->altura);
+        printf("kSizeX : %d\n", kern->kernelX);
+        printf("kSizeY : %d\n", kern->kernelY);
+        printf("%.6lf seconds elapsed for Reading image file.\n", tread);
+        printf("%.6lf seconds elapsed for copying image structure.\n", tcopy);
+        printf("%.6lf seconds elapsed for Reading kernel matrix.\n", treadk);
+        printf("%.6lf seconds elapsed for make the convolution.\n", tconv);
+        printf("%.6lf seconds elapsed for writing the resulting image.\n", tstore);
+        printf("%.6lf seconds elapsed %i\n", tend-tstart, rank);
+        
+        freeImagestructure(&source);
+        freeImagestructure(&output);
+    }
+
+    
 
 
     MPI_Finalize();
-
-    fclose(fpsrc);
-    fclose(fpdst);
-    
-//    freeImagestructure(&source);
-//    freeImagestructure(&output);
-    
-    gettimeofday(&tim, NULL);
-    tend = tim.tv_sec+(tim.tv_usec/1000000.0);
-    
-    printf("Imatge: %s\n", argv[1]);
-    printf("ISizeX : %d\n", source->ancho);
-    printf("ISizeY : %d\n", source->altura);
-    printf("kSizeX : %d\n", kern->kernelX);
-    printf("kSizeY : %d\n", kern->kernelY);
-    printf("%.6lf seconds elapsed for Reading image file.\n", tread);
-    printf("%.6lf seconds elapsed for copying image structure.\n", tcopy);
-    printf("%.6lf seconds elapsed for Reading kernel matrix.\n", treadk);
-    printf("%.6lf seconds elapsed for make the convolution.\n", tconv);
-    printf("%.6lf seconds elapsed for writing the resulting image.\n", tstore);
-    printf("%.6lf seconds elapsed %i\n", tend-tstart, rank);
-    
-    freeImagestructure(&source);
-    freeImagestructure(&output);
 
     /*total_elapsed = MPI_Wtime() - mpi_start;
     printf("%.6lf seconds elapsed for copying image structure.\n", mpi_tcopy);
