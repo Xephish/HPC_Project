@@ -523,250 +523,148 @@ int main(int argc, char **argv)
             fOutBlue = malloc(sizeof(int) * dataSizeX * dataSizeY);
         }
 
+
+        /*Share the image size*/
         MPI_Bcast(&dataSizeX, 1, MPI_INT, 0, MPI_COMM_WORLD); 
         MPI_Bcast(&dataSizeY, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-        int n_row_chunk = /*50*/ size * 4;
+        /*The image chunks consists in a number of rows of the input image*/
+        int n_row_chunk = size * 4;
         int nchunks = 0;
         int total_chunks = dataSizeY;
         int nchunksresults = 0;
         int total_results = dataSizeY;
         MPI_Status status;
-
         int chunksize = n_row_chunk * dataSizeX;
 
         int myRecvArr[chunksize];
         int mySendArr[chunksize];
 
+        /*Color arrays*/
         int redSend[chunksize];
         int redRecv[chunksize];
-
         int blueSend[chunksize];
         int blueRecv[chunksize];
-
         int greenSend[chunksize];
         int greenRecv[chunksize];
 
+        /*Offests in the overall image*/
         int inOffset = 0;
         int outOffset = 0;
 
-        int *colorsIn[3];
-        colorsIn[0] = redIn;
-        colorsIn[1] = blueIn;
-        colorsIn[2] = greenIn;
-
-        int *colorsOut[3];
-        colorsOut[0] = redOut;
-        colorsOut[1] = blueOut;
-        colorsOut[2] = greenOut;
-
-        int *rInRed = malloc(sizeof(int) * chunksize);
-        int *rInGreen = malloc(sizeof(int) * chunksize);
-        int *rInBlue = malloc(sizeof(int) * chunksize);
-
-        int *rOutRed = malloc(sizeof(int) * chunksize);
-        int *rOutGreen = malloc(sizeof(int) * chunksize);
-        int *rOutBlue = malloc(sizeof(int) * chunksize);
-
-        /*for(int x = 0; x < 3; x++){
-            inOffset = 0;
-            outOffset = 0;*/
-            if (rank == 0) { // master code
-                
-
-                /*for(int i = 0; i < chunksize; i++){
-                    printf("RED: %i | BLUE: %i | GREEN %i , OUT: %i\n", colorsIn[0][i], colorsIn[1][i],
-                     colorsIn[2][i], mySendArr[i]);
-                }*/
-
-                while (nchunks < total_chunks) {
-                    MPI_Recv(myRecvArr,1,MPI_INT,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,&status);
-                     if (myRecvArr[0] == -1) { // worker wants more work
-                        for(int i = 0; i < chunksize; i++){
-                            //mySendArr[i] = colorsIn[x][i + inOffset];
-                            redSend[i] = redIn[i + inOffset];
-                            blueSend[i] = blueIn[i + inOffset];
-                            greenSend[i] = greenIn[i + inOffset];
-
-                        }
-
-                        
-                        //MPI_Send(mySendArr,chunksize,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
-
-                        MPI_Send(redSend,chunksize,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
-                        MPI_Send(blueSend,chunksize,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
-                        MPI_Send(greenSend,chunksize,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
-                        MPI_Send(&inOffset,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
-
-                        nchunks += n_row_chunk;
-                        inOffset += chunksize;
-                        printf("SENT WORK: %i | CHUNK: %i\n", mySendArr[0], nchunks);
-                        /*for(int i = 0; i < chunksize; i++){
-                            fOutRed[i + outOffset] = mySendArr[i];
-                        }*/
-                        //&in[dataSizeX]; 
-                    
-                     //. . .
+        if (rank == 0) { // master code
+            /*for(int i = 0; i < chunksize; i++){
+                printf("RED: %i | BLUE: %i | GREEN %i , OUT: %i\n", colorsIn[0][i], colorsIn[1][i],
+                 colorsIn[2][i], mySendArr[i]);
+            }*/
+            while (nchunks < total_chunks) {  // while remains not sent chunks
+                MPI_Recv(myRecvArr,1,MPI_INT,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,&status);
+                 if (myRecvArr[0] == -1) {  // worker wants more work
+                    for(int i = 0; i < chunksize; i++){  // add the chunks to the respective arrays
+                        redSend[i] = redIn[i + inOffset];
+                        blueSend[i] = blueIn[i + inOffset];
+                        greenSend[i] = greenIn[i + inOffset];
                     }
-                    else if (myRecvArr[0] == -2) { // worker wants to send finished work
-                        printf("RECEIVING\n");
-                        //MPI_Recv(myRecvArr,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
+                    /*Send each color array*/
+                    MPI_Send(redSend,chunksize,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
+                    MPI_Send(blueSend,chunksize,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
+                    MPI_Send(greenSend,chunksize,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
+                    MPI_Send(&inOffset,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);  // send the offset of the chunk sent
 
-                        MPI_Recv(&outOffset,1,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
-                        MPI_Recv(redRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
-                        MPI_Recv(blueRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
-                        MPI_Recv(greenRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
-
-                        for(int i = 0; i < chunksize; i++){
-                            //colorsOut[x][i + outOffset] = myRecvArr[i];
-                            redOut[i + outOffset] = redRecv[i];
-                            blueOut[i + outOffset] = blueRecv[i];
-                            greenOut[i + outOffset] = greenRecv[i];
-                            //printf("RED: %i | BLUE: %i | GREEN %i\n", redOut[i], blueOut[i], greenOut[i]);
-                        }
-                        //outOffset += chunksize;
-                    //. . .
-                        nchunksresults += n_row_chunk;
-                        printf("RECEIVED WORK: %i | CHUNK: %i\n", myRecvArr[0], nchunksresults);
-                    }                    
+                    nchunks += n_row_chunk;
+                    inOffset += chunksize;
+                    printf("SENT WORK: %i | CHUNK: %i\n", mySendArr[0], nchunks);
                 }
-                // Check the reception of all the remaining results
-                while (nchunksresults < total_results) {
-                    MPI_Recv(myRecvArr,1,MPI_INT,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,&status);
-                    if (myRecvArr[0] == -1) {// tell worker there isn't any more chunks
-                        mySendArr[0] = -1;
-                        MPI_Send(mySendArr,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
-                    }
-                    else if (myRecvArr[0] == -2) { // worker wants to send finished work
-                        MPI_Recv(&outOffset,1,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
-                        MPI_Recv(redRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
-                        MPI_Recv(blueRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
-                        MPI_Recv(greenRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
+                else if (myRecvArr[0] == -2) { // worker wants to send finished work
+                    printf("RECEIVING\n");
+                    /*Receive each color array*/
+                    MPI_Recv(&outOffset,1,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
+                    MPI_Recv(redRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
+                    MPI_Recv(blueRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
+                    MPI_Recv(greenRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status); // receive the offset of the chunk sent
 
-                        for(int i = 0; i < chunksize; i++){
-                            //colorsOut[x][i + outOffset] = myRecvArr[i];
-                            redOut[i + outOffset] = redRecv[i];
-                            blueOut[i + outOffset] = blueRecv[i];
-                            greenOut[i + outOffset] = greenRecv[i];
-                        }
-                        outOffset += chunksize;
-                        nchunksresults += n_row_chunk;
-                        printf("AFTER WORK: %i | CHUNK: %i\n", myRecvArr[0], nchunksresults);
-                        //. . .
+                    for(int i = 0; i < chunksize; i++){  // put the convoluted colors to the respective output array, taking into account its offset
+                        redOut[i + outOffset] = redRecv[i];
+                        blueOut[i + outOffset] = blueRecv[i];
+                        greenOut[i + outOffset] = greenRecv[i];
+                        //printf("RED: %i | BLUE: %i | GREEN %i\n", redOut[i], blueOut[i], greenOut[i]);
                     }
-                    printf("while\n");
-                }
-                MPI_Send(mySendArr,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
-                printf("HERE\n");
+                    nchunksresults += n_row_chunk;
+                    printf("RECEIVED WORK: %i | CHUNK: %i\n", myRecvArr[0], nchunksresults);
+                }                    
             }
-            else { // worker code
-                while (1) {
-                    // ask master for work
+            // Check the reception of all the remaining results
+            while (nchunksresults < total_results) {
+                MPI_Recv(myRecvArr,1,MPI_INT,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,&status);
+                if (myRecvArr[0] == -1) {// tell worker there isn't any more chunksç
+                    printf("ASKS FOR WORK\n");
                     mySendArr[0] = -1;
-                    MPI_Send(mySendArr,1,MPI_INT,0,0,MPI_COMM_WORLD);
-                    // recv response (starting number or -1)
-                    //MPI_Recv(myRecvArr,chunksize,MPI_INT,0,0,MPI_COMM_WORLD,&status);
-                    MPI_Recv(redRecv,chunksize,MPI_INT,0,0,MPI_COMM_WORLD,&status);
-                    
-                    if (redRecv[0] == -1) { // -1 means no more
-                        break; // break the loop
+                    MPI_Send(mySendArr,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
+                }
+                else if (myRecvArr[0] == -2) { // worker wants to send finished work, repeat the same receiving process
+                    MPI_Recv(&outOffset,1,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
+                    MPI_Recv(redRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
+                    MPI_Recv(blueRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
+                    MPI_Recv(greenRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
+
+                    for(int i = 0; i < chunksize; i++){
+                        redOut[i + outOffset] = redRecv[i];
+                        blueOut[i + outOffset] = blueRecv[i];
+                        greenOut[i + outOffset] = greenRecv[i];
                     }
-                    else {
-                        MPI_Recv(blueRecv,chunksize,MPI_INT,0,0,MPI_COMM_WORLD,&status);
-                        MPI_Recv(greenRecv,chunksize,MPI_INT,0,0,MPI_COMM_WORLD,&status);
-                        MPI_Recv(&inOffset,1,MPI_INT,0,0,MPI_COMM_WORLD,&status);
-                        //myJobStart = myRecvArr[0];
+                    outOffset += chunksize;
+                    nchunksresults += n_row_chunk;
+                    printf("AFTER WORK: %i | CHUNK: %i\n", myRecvArr[0], nchunksresults);
+                }
+                printf("while\n");
+            }
+            printf("HERE\n");
+            mySendArr[0] = -1;
+            MPI_Send(mySendArr,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
+            
+        }
+        else { // worker code
+            while (1) {
+                // ask master for work
+                mySendArr[0] = -1;
+                printf("from worker ask\n");
+                MPI_Send(mySendArr,1,MPI_INT,0,0,MPI_COMM_WORLD);
 
-                        // do computation
-                        convolve2D(redRecv, redSend, dataSizeX, n_row_chunk, kern->vkern, kern->kernelX, kern->kernelY);
-                        convolve2D(blueRecv, blueSend, dataSizeX, n_row_chunk, kern->vkern, kern->kernelX, kern->kernelY);
-                        convolve2D(greenRecv, greenSend, dataSizeX, n_row_chunk, kern->vkern, kern->kernelX, kern->kernelY);
-                        //. . .
-                        // tell master work is done and ready to send
-                        //mySendArr[0] = -2;
-                        int request = -2;
+                printf("from worker recv\n");
+                // recv response (starting number or -1)
+                MPI_Recv(redRecv,chunksize,MPI_INT,0,0,MPI_COMM_WORLD,&status);
+                printf("from worker after recv %i\n", redRecv[0]);
+                if (redRecv[0] == -1) { // -1 means no more
+                    break; // break the loop
+                }
+                else {  // if reveived valid arrays
+                    MPI_Recv(blueRecv,chunksize,MPI_INT,0,0,MPI_COMM_WORLD,&status);
+                    MPI_Recv(greenRecv,chunksize,MPI_INT,0,0,MPI_COMM_WORLD,&status);
+                    MPI_Recv(&inOffset,1,MPI_INT,0,0,MPI_COMM_WORLD,&status);
 
-                        MPI_Send(&request,1,MPI_INT,0,0,MPI_COMM_WORLD);
-                        printf("REQUEST SEND WORK\n");
-                        // send work
-                        
-                        //mySendArr[0] = myJobStart;
+                    // do the convolution
+                    convolve2D(redRecv, redSend, dataSizeX, n_row_chunk, kern->vkern, kern->kernelX, kern->kernelY);
+                    convolve2D(blueRecv, blueSend, dataSizeX, n_row_chunk, kern->vkern, kern->kernelX, kern->kernelY);
+                    convolve2D(greenRecv, greenSend, dataSizeX, n_row_chunk, kern->vkern, kern->kernelX, kern->kernelY);
 
-                        /*for(int i = 0; i < chunksize; i++){
-                            printf("IN: %i , OUT: %i\n", redSend[i], mySendArr[i]);
-                        }*/
-
-                        /*for (i = 1; i < dataSizeX + 1; i++) {
-                            mySendArr[i] = pixels[i-1];
-                        }*/
-                        MPI_Send(&inOffset,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
-                        MPI_Send(redSend,/*WIDTH*HEIGHT+1*/chunksize,MPI_INT,0,0,MPI_COMM_WORLD);
-                        MPI_Send(blueSend,/*WIDTH*HEIGHT+1*/chunksize,MPI_INT,0,0,MPI_COMM_WORLD);
-                        MPI_Send(greenSend,/*WIDTH*HEIGHT+1*/chunksize,MPI_INT,0,0,MPI_COMM_WORLD);
-                        
-                        printf("REQUEST RESULT WORK\n");
-                    } // end conditional
-                } // end while
-            } // end conditional 
-        //}
-
-
-        /*for(int i = 0; i < chunksize; i++){
-                    printf("RED: %i | BLUE: %i | GREEN %i , OUT: %i\n", redOut, blueOut, greenOut, colorsIn[1][i],
-                     colorsIn[2][i], mySendArr[i]);
-                }*/
+                    // tell master work is done and ready to send
+                    int request = -2;
+                    MPI_Send(&request,1,MPI_INT,0,0,MPI_COMM_WORLD);
+                    printf("REQUEST SEND WORK\n");
+                    
+                    // send the results
+                    MPI_Send(&inOffset,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
+                    MPI_Send(redSend,chunksize,MPI_INT,0,0,MPI_COMM_WORLD);
+                    MPI_Send(blueSend,chunksize,MPI_INT,0,0,MPI_COMM_WORLD);
+                    MPI_Send(greenSend,chunksize,MPI_INT,0,0,MPI_COMM_WORLD);
+                    
+                    printf("REQUEST RESULT WORK\n");
+                } // end conditional
+            } // end while
+        } // end conditional 
 
         printf("FINISHED: %i\n", rank);
          
-
-        /*
-        MPI_Bcast(&chunk, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&dataSizeX, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&dataSizeY, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        int imageChunkSize = chunk * dataSizeX;
-
-        int *rInRed = malloc(sizeof(int) * imageChunkSize);
-        int *rInGreen = malloc(sizeof(int) * imageChunkSize);
-        int *rInBlue = malloc(sizeof(int) * imageChunkSize);
-
-        int *rOutRed = malloc(sizeof(int) * imageChunkSize);
-        int *rOutGreen = malloc(sizeof(int) * imageChunkSize);
-        int *rOutBlue = malloc(sizeof(int) * imageChunkSize);
-
-
-        MPI_Scatter(redIn, imageChunkSize, MPI_INT, rInRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
-        MPI_Scatter(greenIn, imageChunkSize, MPI_INT, rInGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Scatter(blueIn, imageChunkSize, MPI_INT, rInBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-
-        MPI_Scatter(redOut, imageChunkSize, MPI_INT, rOutRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
-        MPI_Scatter(greenOut, imageChunkSize, MPI_INT, rOutGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Scatter(blueOut, imageChunkSize, MPI_INT, rOutBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-       // printf("dx: %i | dy: %i | kx: %i | ky: %i ||| form %i\n", dataSizeX, dataSizeY, kernelSizeX, kernelSizeY, rank);
-
-        convolve2D(rInRed, rOutRed, dataSizeX, chunk, kern->vkern, kern->kernelX, kern->kernelY);
-        convolve2D(rInGreen, rOutGreen, dataSizeX, chunk, kern->vkern, kern->kernelX, kern->kernelY);
-        convolve2D(rInBlue, rOutBlue, dataSizeX, chunk, kern->vkern, kern->kernelX, kern->kernelY);
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        //MPI_Barrier(MPI_COMM_WORLD);
-
-        MPI_Gather(rOutRed, imageChunkSize, MPI_INT, fOutRed, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);  
-        MPI_Gather(rOutGreen, imageChunkSize, MPI_INT, fOutGreen, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Gather(rOutBlue, imageChunkSize, MPI_INT, fOutBlue, imageChunkSize, MPI_INT, 0, MPI_COMM_WORLD);*/
-
-        /*if(rank == 0){
-            for(int i= 0; i < dataSizeX * dataSizeY; i++){
-                printf(" %i ||| %i ||| %i ||| %i ||| %i \n", rOutRed[i], rOutGreen[i], rOutBlue[i], i, rank);
-            }
-        }*/
-
         MPI_Barrier(MPI_COMM_WORLD);
         
         if(rank == 0){
@@ -774,13 +672,16 @@ int main(int argc, char **argv)
             output->G = greenOut;
             output->B = blueOut;
 
+            /*free(redOut);
+            free(greenOut);
+            free(blueOut);*/
+
             tconv = tconv + (MPI_Wtime() - start);
             
             //////////////////////////////////////////////////////////////////////////////////////////////////
             // CHUNK SAVING
             //////////////////////////////////////////////////////////////////////////////////////////////////
             //Storing resulting image partition.
-            //gettimeofday(&tim, NULL);
             start = MPI_Wtime();
             if (savingChunk(output, &fpdst, partsize, offset)) {
                 perror("Error: ");
@@ -788,7 +689,6 @@ int main(int argc, char **argv)
                 //        free(output);
                 return -1;
             }
-            //gettimeofday(&tim, NULL);
             tstore = tstore + (MPI_Wtime() - start);
             //Next partition
             c++;
@@ -796,16 +696,11 @@ int main(int argc, char **argv)
 
         MPI_Bcast(&c, 1, MPI_INT, 0, MPI_COMM_WORLD);
     }
-    //MPI_Barrier(MPI_COMM_WORLD);
-
 
     if(rank == 0){
         fclose(fpsrc);
         fclose(fpdst);
-        
-    //    freeImagestructure(&source);
-    //    freeImagestructure(&output);
-        
+            
         gettimeofday(&tim, NULL);
         tend = tim.tv_sec+(tim.tv_usec/1000000.0);
         
@@ -819,90 +714,12 @@ int main(int argc, char **argv)
         printf("%.6lf seconds elapsed for Reading kernel matrix.\n", treadk);
         printf("%.6lf seconds elapsed for make the convolution.\n", tconv);
         printf("%.6lf seconds elapsed for writing the resulting image.\n", tstore);
-        printf("%.6lf seconds elapsed %i\n", tend-tstart, rank);
+        printf("%.6lf seconds elapsed\n", tend-tstart);
         
-        freeImagestructure(&source);
-        freeImagestructure(&output);
+        /*freeImagestructure(&source);
+        freeImagestructure(&output);*/
     }
-
     
-
-
     MPI_Finalize();
-
-    /*total_elapsed = MPI_Wtime() - mpi_start;
-    printf("%.6lf seconds elapsed for copying image structure.\n", mpi_tcopy);
-    printf("MPI %.6lf seconds elapsed\n", total_elapsed);*/
-    //MPI_Barrier(MPI_COMM_WORLD);
-
-    
     return 0;
 }
-
-/*int sHeigth, sWidth, sMaxcolor, sP, *sR, *sG, *sB, oHeigth, oWidth, oMaxcolor, oP, *oR, *oG, *oB;
-        char *sComment, *oComment;
-
-        if(rank == 0){
-            sHeigth = source->altura;
-            sWidth = source->ancho;
-            sMaxcolor = source->maxcolor;
-            sP = source->P;
-            sR = source->R;
-            sG = source->G;
-            sB = source->B;
-            sComment = source->comentario;
-
-            oHeigth = output->altura;
-            oWidth = output->ancho;
-            oMaxcolor = output->maxcolor;
-            oP = output->P;
-            oR = output->R;
-            oG = output->G;
-            oB = output->B;
-            oComment = source->comentario;
-        }
-
-        MPI_Bcast(&sHeigth, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&sWidth, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&sMaxcolor, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&sP, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&sR, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&sG, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&sB, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&sComment, 100, MPI_CHAR, 0, MPI_COMM_WORLD); 
-
-        MPI_Bcast(&oHeigth, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&oWidth, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&oMaxcolor, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&oP, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&oR, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&oG, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&oB, 1, MPI_INT, 0, MPI_COMM_WORLD); 
-        MPI_Bcast(&oComment, 100, MPI_CHAR, 0, MPI_COMM_WORLD); 
-
-        MPI_Bcast(&chunksize, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        printf("dx: %i | dy: %i | kx: %i | ky: %i ||| form %i\n", sHeigth, sWidth, oHeigth, oWidth, rank);
-
-        ImagenData s = (ImagenData) malloc(sizeof(struct imagenppm));
-        ImagenData o = (ImagenData) malloc(sizeof(struct imagenppm));
-
-        s->altura = sHeigth;
-        s->ancho = sWidth;
-        s->maxcolor = sMaxcolor;
-        s->P = sP;
-        s->R = sR;
-        s->G = sG;
-        s->B = sB;
-        s->comentario = sComment;
-
-        o->altura = oHeigth;
-        o->ancho = oWidth;
-        o->maxcolor = oMaxcolor;
-        o->P = oP;
-        o->R = oR;
-        o->G = oG;
-        o->B = oB;
-        o->comentario = oComment;*/
