@@ -553,10 +553,6 @@ int main(int argc, char **argv)
         int outOffset = 0;
 
         if (rank == 0) { // master code
-            /*for(int i = 0; i < chunksize; i++){
-                printf("RED: %i | BLUE: %i | GREEN %i , OUT: %i\n", colorsIn[0][i], colorsIn[1][i],
-                 colorsIn[2][i], mySendArr[i]);
-            }*/
             while (nchunks < total_chunks) {  // while remains not sent chunks
                 MPI_Recv(myRecvArr,1,MPI_INT,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,&status);
                  if (myRecvArr[0] == -1) {  // worker wants more work
@@ -573,10 +569,8 @@ int main(int argc, char **argv)
 
                     nchunks += n_row_chunk;
                     inOffset += chunksize;
-                    printf("SENT WORK: %i | CHUNK: %i\n", mySendArr[0], nchunks);
                 }
                 else if (myRecvArr[0] == -2) { // worker wants to send finished work
-                    printf("RECEIVING\n");
                     /*Receive each color array*/
                     MPI_Recv(&outOffset,1,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
                     MPI_Recv(redRecv,chunksize,MPI_INT,status.MPI_SOURCE, 0,MPI_COMM_WORLD,&status);
@@ -590,14 +584,12 @@ int main(int argc, char **argv)
                         //printf("RED: %i | BLUE: %i | GREEN %i\n", redOut[i], blueOut[i], greenOut[i]);
                     }
                     nchunksresults += n_row_chunk;
-                    printf("RECEIVED WORK: %i | CHUNK: %i\n", myRecvArr[0], nchunksresults);
                 }                    
             }
             // Check the reception of all the remaining results
             while (nchunksresults < total_results) {
                 MPI_Recv(myRecvArr,1,MPI_INT,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,&status);
                 if (myRecvArr[0] == -1) {// tell worker there isn't any more chunksç
-                    printf("ASKS FOR WORK\n");
                     mySendArr[0] = -1;
                     MPI_Send(mySendArr,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
                 }
@@ -614,11 +606,8 @@ int main(int argc, char **argv)
                     }
                     outOffset += chunksize;
                     nchunksresults += n_row_chunk;
-                    printf("AFTER WORK: %i | CHUNK: %i\n", myRecvArr[0], nchunksresults);
                 }
-                printf("while\n");
             }
-            printf("HERE\n");
             mySendArr[0] = -1;
             MPI_Send(mySendArr,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
             
@@ -627,13 +616,10 @@ int main(int argc, char **argv)
             while (1) {
                 // ask master for work
                 mySendArr[0] = -1;
-                printf("from worker ask\n");
                 MPI_Send(mySendArr,1,MPI_INT,0,0,MPI_COMM_WORLD);
 
-                printf("from worker recv\n");
-                // recv response (starting number or -1)
+                // recv response (starting number  or -1)
                 MPI_Recv(redRecv,chunksize,MPI_INT,0,0,MPI_COMM_WORLD,&status);
-                printf("from worker after recv %i\n", redRecv[0]);
                 if (redRecv[0] == -1) { // -1 means no more
                     break; // break the loop
                 }
@@ -650,20 +636,15 @@ int main(int argc, char **argv)
                     // tell master work is done and ready to send
                     int request = -2;
                     MPI_Send(&request,1,MPI_INT,0,0,MPI_COMM_WORLD);
-                    printf("REQUEST SEND WORK\n");
                     
                     // send the results
                     MPI_Send(&inOffset,1,MPI_INT,status.MPI_SOURCE,0,MPI_COMM_WORLD);
                     MPI_Send(redSend,chunksize,MPI_INT,0,0,MPI_COMM_WORLD);
                     MPI_Send(blueSend,chunksize,MPI_INT,0,0,MPI_COMM_WORLD);
                     MPI_Send(greenSend,chunksize,MPI_INT,0,0,MPI_COMM_WORLD);
-                    
-                    printf("REQUEST RESULT WORK\n");
                 } // end conditional
             } // end while
         } // end conditional 
-
-        printf("FINISHED: %i\n", rank);
          
         MPI_Barrier(MPI_COMM_WORLD);
         
